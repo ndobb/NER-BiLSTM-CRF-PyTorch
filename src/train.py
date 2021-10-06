@@ -3,14 +3,12 @@ import optparse
 import itertools
 import matplotlib.pyplot as plt
 import sys
-import visdom
 import torch
 import pickle
 
 from collections import OrderedDict
 from tqdm import tqdm
 from torch.autograd import Variable
-from sklearn.metrics import classification_report, f1_score, confusion_matrix
 
 import loader
 from utils import *
@@ -18,77 +16,32 @@ from loader import *
 from model import BiLSTM_CRF
 
 optparser = optparse.OptionParser()
-optparser.add_option("-T", "--train", default="data/eng.train", help="Train set location")
-optparser.add_option("-d", "--dev", default="data/eng.testa", help="Dev set location")
-optparser.add_option("-t", "--test", default="data/eng.testb", help="Test set location")
+optparser.add_option("-T", "--train", default="data/lct_event_train.txt", help="Train set location")
+optparser.add_option("-d", "--dev", default="data/lct_event_test_dev.txt", help="Dev set location")
+optparser.add_option("-t", "--test", default="data/lct_event_test_test.txt", help="Test set location")
 optparser.add_option("--test_train", default="data/eng.train50000", help="test train")
 optparser.add_option("--score", default="evaluation/temp/score.txt", help="score file location")
-optparser.add_option("-s", "--tag_scheme", default="iobes", help="Tagging scheme (IOB or IOBES)")
-optparser.add_option(
-    "-l",
-    "--lower",
-    default="1",
-    type="int",
-    help="Lowercase words (this will not affect character inputs)",
-)
+optparser.add_option("-s", "--tag_scheme", default="iob", help="Tagging scheme (IOB or IOBES)")
+optparser.add_option("-l", "--lower", default="1", type="int", help="Lowercase words (this will not affect character inputs)",)
 optparser.add_option("-z", "--zeros", default="0", type="int", help="Replace digits with 0")
 optparser.add_option("-c", "--char_dim", default="25", type="int", help="Char embedding dimension")
-optparser.add_option(
-    "-C",
-    "--char_lstm_dim",
-    default="25",
-    type="int",
-    help="Char LSTM hidden layer size",
-)
-optparser.add_option(
-    "-b",
-    "--char_bidirect",
-    default="1",
-    type="int",
-    help="Use a bidirectional LSTM for chars",
-)
+optparser.add_option("-C", "--char_lstm_dim", default="25", type="int", help="Char LSTM hidden layer size", )
+optparser.add_option("-b", "--char_bidirect", default="1", type="int", help="Use a bidirectional LSTM for chars",)
 optparser.add_option("-w", "--word_dim", default="100", type="int", help="Token embedding dimension")
-optparser.add_option(
-    "-W",
-    "--word_lstm_dim",
-    default="200",
-    type="int",
-    help="Token LSTM hidden layer size",
-)
-optparser.add_option(
-    "-B",
-    "--word_bidirect",
-    default="1",
-    type="int",
-    help="Use a bidirectional LSTM for words",
-)
-optparser.add_option(
-    "-p",
-    "--pre_emb",
-    default="data/glove.6B.100d.txt",
-    help="Location of pretrained embeddings",
-)
+optparser.add_option("-W", "--word_lstm_dim", default="100", type="int", help="Token LSTM hidden layer size",)
+optparser.add_option("-B", "--word_bidirect", default="1", type="int", help="Use a bidirectional LSTM for words",)
+optparser.add_option("-p", "--pre_emb", default="data/glove.6B.100d.txt", help="Location of pretrained embeddings",)
 optparser.add_option("-A", "--all_emb", default="1", type="int", help="Load all embeddings")
-optparser.add_option(
-    "-a",
-    "--cap_dim",
-    default="0",
-    type="int",
-    help="Capitalization feature dimension (0 to disable)",
-)
+optparser.add_option("-a", "--cap_dim", default="0", type="int", help="Capitalization feature dimension (0 to disable)",)
 optparser.add_option("-f", "--crf", default="1", type="int", help="Use CRF (0 to disable)")
-optparser.add_option(
-    "-D",
-    "--dropout",
-    default="0.5",
-    type="float",
-    help="Droupout on the input (0 = no dropout)",
-)
+optparser.add_option("-D", "--dropout", default="0.5", type="float", help="Dropout on the input (0 = no dropout)",)
 optparser.add_option("-r", "--reload", default="0", type="int", help="Reload the last saved model")
-optparser.add_option("-g", "--use_gpu", default="1", type="int", help="whether or not to ues gpu")
+optparser.add_option("-g", "--use_gpu", default="1", type="int", help="whether or not to use gpu")
 optparser.add_option("--loss", default="loss.txt", help="loss file location")
 optparser.add_option("--name", default="test", help="model name")
-optparser.add_option("--char_mode", choices=["CNN", "LSTM"], default="CNN", help="char_CNN or char_LSTM")
+optparser.add_option("--char_mode", choices=["CNN", "LSTM"], default="LSTM", help="char_CNN or char_LSTM")
+optparser.add_option("--max_epochs", default="100", type="int", help="Max number of epochs to train for")
+optparser.add_option("--patience", default="10", type="int", help="number of epochs to continue after no improvment")
 opts = optparser.parse_args()[0]
 
 parameters = OrderedDict()
@@ -110,6 +63,8 @@ parameters["reload"] = opts.reload == 1
 parameters["name"] = opts.name
 parameters["char_mode"] = opts.char_mode
 parameters["use_gpu"] = opts.use_gpu == 1 and torch.cuda.is_available()
+parameters["max_epochs"] = opts.max_epochs
+parameters["patience"] = opts.patience
 
 use_gpu = parameters["use_gpu"]
 device = torch.device("cuda" if use_gpu else "cpu")
@@ -120,61 +75,6 @@ models_path = "models/"
 model_name = models_path + name  # get_name(parameters)
 tmp_model = model_name + ".tmp"
 
-
-# def evaluating_with_sklearn(model, datas, best_F=0):
-#     # FB1 on word level
-#     save = False
-#     new_F = 0.0
-#     gold_tag_id = []
-#     pred_tag_id = []
-#     for data in datas:
-#         gold_tag_id.extend(data["tags"])  # [tad_id]
-#         chars = data["chars"]  # [[char_id]]
-#         caps = data["caps"]  # [cap_feat_id]
-
-#         if parameters["char_mode"] == "LSTM":
-#             chars_sorted = sorted(chars, key=lambda p: len(p), reverse=True)
-#             d = {}
-#             for i, ci in enumerate(chars):
-#                 for j, cj in enumerate(chars_sorted):
-#                     if ci == cj and not j in d and not i in d.values():
-#                         d[j] = i
-#                         continue
-#             chars_length = [len(c) for c in chars_sorted]
-#             char_maxl = max(chars_length)
-#             chars_mask = np.zeros((len(chars_sorted), char_maxl), dtype="int")
-#             for i, c in enumerate(chars_sorted):
-#                 chars_mask[i, :chars_length[i]] = c
-#             chars_mask = Variable(torch.LongTensor(chars_mask))
-
-#         if parameters["char_mode"] == "CNN":
-#             d = {}
-#             chars_length = [len(c) for c in chars]
-#             char_maxl = max(chars_length)
-#             chars_mask = np.zeros((len(chars_length), char_maxl), dtype="int")
-#             for i, c in enumerate(chars):
-#                 chars_mask[i, :chars_length[i]] = c
-#             chars_mask = Variable(torch.LongTensor(chars_mask))
-
-#         dwords = Variable(torch.LongTensor(data["words"]))
-#         dcaps = Variable(torch.LongTensor(caps))
-#         if use_gpu:
-#             val, out = model(dwords.cuda(), chars_mask.cuda(), dcaps.cuda(), chars_length, d)
-#         else:
-#             val, out = model(dwords, chars_mask, dcaps, chars_length, d)
-#         pred_tag_id.extend(out)
-
-#     tag_ids = list(id_to_tag.keys())[:-2]  # ignore <start> and <stop>
-#     tags = list(id_to_tag.values())[:-2]
-#     print(classification_report(gold_tag_id, pred_tag_id, labels=tag_ids[0:], target_names=tags[0:], digits=4))
-#     print(confusion_matrix(gold_tag_id, pred_tag_id, labels=tag_ids))
-#     new_F = f1_score(gold_tag_id, pred_tag_id, average="micro")
-#     print()
-#     if new_F > best_F:
-#         best_F = new_F
-#         save = True
-#         print(f"the best F is {best_F} \n\n")
-#     return best_F, new_F, save
 
 def evaluating(model, datas, best_F):
     # FB1 on pharse level
@@ -244,6 +144,7 @@ def evaluating(model, datas, best_F):
                 save = True
                 print('the best F is ', new_F)
 
+    '''
     print(("{: >2}{: >7}{: >7}%s{: >9}" % ("{: >7}" * confusion_matrix.size(0))).format(
         "ID", "NE", "Total",
         *([id_to_tag[i] for i in range(confusion_matrix.size(0))] + ["Percent"])
@@ -255,6 +156,8 @@ def evaluating(model, datas, best_F):
               ["%.3f" % (confusion_matrix[i][i] * 100. / max(1, confusion_matrix[i].sum()))])
         ))
     print()
+    '''
+
     return best_F, new_F, save
 
 
@@ -271,12 +174,12 @@ def train():
     plot_every = 100
     eval_every = 200
     count = 0
-    vis = visdom.Visdom()
+    no_improve_count = 0
     sys.stdout.flush()
 
     model.train(True)
 
-    for epoch in range(1, 10001):
+    for epoch in range(1, parameters["max_epochs"]):
         for iter, index in enumerate(tqdm(np.random.permutation(len(train_data)))):
             data = train_data[index]
             model.zero_grad()
@@ -336,21 +239,9 @@ def train():
                 if losses == []:
                     losses.append(loss)
                 losses.append(loss)
-                text = "<p>" + "</p><p>".join([str(l) for l in losses[-9:]]) + "</p>"
-                losswin = "loss_" + name
-                textwin = "loss_text_" + name
-                vis.line(
-                    np.array(losses),
-                    X=np.array([plot_every * i for i in range(len(losses))]),
-                    win=losswin,
-                    opts={
-                        "title": losswin,
-                        "legend": ["loss"]
-                    },
-                )
-                vis.text(text, win=textwin, opts={"title": textwin})
                 loss = 0.0
 
+            '''
             if (count % (eval_every) == 0 and count > (eval_every * 20) or count % (eval_every * 4) == 0 and count <
                 (eval_every * 20)):
                 model.train(False)
@@ -362,20 +253,30 @@ def train():
                 sys.stdout.flush()
 
                 all_F.append([new_train_F, new_dev_F, new_test_F])
-                Fwin = "F-score of {train, dev, test}_" + name
-                vis.line(
-                    np.array(all_F),
-                    win=Fwin,
-                    X=np.array([eval_every * i for i in range(len(all_F))]),
-                    opts={
-                        "title": Fwin,
-                        "legend": ["train", "dev", "test"]
-                    },
-                )
                 model.train(True)
+            '''
 
             if count % len(train_data) == 0:
                 adjust_learning_rate(optimizer, lr=learning_rate / (1 + 0.05 * count / len(train_data)))
+
+        # evaluate
+        model.train(False)
+        best_train_F, new_train_F, _ = evaluating(model, test_train_data, best_train_F)
+        best_dev_F, new_dev_F, save = evaluating(model, dev_data, best_dev_F)
+        if save:
+            print(f'Best epoch so far: {epoch}')
+            torch.save(model, model_name)
+            no_improve_count = 0
+        else:
+            no_improve_count += 1
+        best_test_F, new_test_F, _ = evaluating(model, test_data, best_test_F)
+        sys.stdout.flush()
+        all_F.append([new_train_F, new_dev_F, new_test_F])
+        model.train(True)
+
+        if no_improve_count == parameters["patience"]:
+            print(f'Performance has not improved in {no_improve_count} epochs, early stop!')
+
 
     plt.plot(losses)
     plt.show()
@@ -406,12 +307,12 @@ if __name__ == "__main__":
     train_sentences = loader.load_sentences(opts.train, lower, zeros)
     dev_sentences = loader.load_sentences(opts.dev, lower, zeros)
     test_sentences = loader.load_sentences(opts.test, lower, zeros)
-    test_train_sentences = loader.load_sentences(opts.test_train, lower, zeros)
+    #test_train_sentences = loader.load_sentences(opts.test_train, lower, zeros)
 
     update_tag_scheme(train_sentences, tag_scheme)
     update_tag_scheme(dev_sentences, tag_scheme)
     update_tag_scheme(test_sentences, tag_scheme)
-    update_tag_scheme(test_train_sentences, tag_scheme)
+    #update_tag_scheme(test_train_sentences, tag_scheme)
 
     dico_words_train = word_mapping(train_sentences, lower)[0]
 
@@ -428,7 +329,7 @@ if __name__ == "__main__":
     train_data = prepare_dataset(train_sentences, word_to_id, char_to_id, tag_to_id, lower)
     dev_data = prepare_dataset(dev_sentences, word_to_id, char_to_id, tag_to_id, lower)
     test_data = prepare_dataset(test_sentences, word_to_id, char_to_id, tag_to_id, lower)
-    test_train_data = prepare_dataset(test_train_sentences, word_to_id, char_to_id, tag_to_id, lower)
+    test_train_data = train_data + test_data #prepare_dataset(test_train_sentences, word_to_id, char_to_id, tag_to_id, lower)
 
     print("%i / %i / %i sentences in train / dev / test." % (len(train_data), len(dev_data), len(test_data)))
 

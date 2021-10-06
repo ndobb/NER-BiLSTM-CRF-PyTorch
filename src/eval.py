@@ -12,37 +12,15 @@ from utils import *
 # python -m visdom.server
 
 optparser = optparse.OptionParser()
-optparser.add_option(
-    "-t", "--test", default="data/eng.testb",
-    help="Test set location"
-)
-optparser.add_option(
-    '--score', default='evaluation/temp/score.txt',
-    help='score file location'
-)
-optparser.add_option(
-    "-g", '--use_gpu', default='1',
-    type='int', help='whether or not to ues gpu'
-)
-optparser.add_option(
-    '--loss', default='loss.txt',
-    help='loss file location'
-)
-optparser.add_option(
-    '--model_path', default='models/test',
-    help='model path'
-)
-optparser.add_option(
-    '--map_path', default='models/mapping.pkl',
-    help='model path'
-)
-optparser.add_option(
-    '--char_mode', choices=['CNN', 'LSTM'], default='CNN',
-    help='char_CNN or char_LSTM'
-)
+optparser.add_option("-t", "--test", default="data/eng.testb", help="Test set location")
+optparser.add_option('--score', default='evaluation/temp/score.txt', help='score file location')
+optparser.add_option("-g", '--use_gpu', default='1', type='int', help='whether or not to ues gpu')
+optparser.add_option('--loss', default='loss.txt', help='loss file location')
+optparser.add_option('--model_path', default='models/test', help='model path')
+optparser.add_option('--map_path', default='models/mapping.pkl', help='model path')
+optparser.add_option('--char_mode', choices=['CNN', 'LSTM'], default='CNN', help='char_CNN or char_LSTM')
 
 opts = optparser.parse_args()[0]
-
 mapping_file = opts.map_path
 
 with open(mapping_file, 'rb') as f:
@@ -54,9 +32,7 @@ id_to_tag = {k[1]: k[0] for k in tag_to_id.items()}
 char_to_id = mappings['char_to_id']
 parameters = mappings['parameters']
 word_embeds = mappings['word_embeds']
-
 use_gpu =  opts.use_gpu == 1 and torch.cuda.is_available()
-
 
 assert os.path.isfile(opts.test)
 assert parameters['tag_scheme'] in ['iob', 'iobes']

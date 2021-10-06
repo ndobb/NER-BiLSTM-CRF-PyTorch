@@ -13,13 +13,13 @@ def load_sentences(path, lower, zeros):
     """
     sentences = []
     sentence = []
-    for line in open(path, 'r', encoding='utf-8'):
+    for i, line in enumerate(open(path, 'r', encoding='utf-8')):
         line = zero_digits(line.rstrip()) if zeros else line.rstrip()
         if not line and len(sentence) > 0:
             if 'DOCSTART' not in sentence[0][0]:
                 sentences.append(sentence)
             sentence = []
-        else:
+        elif line:
             word = line.split()
             assert len(word) >= 2
             sentence.append(word)
