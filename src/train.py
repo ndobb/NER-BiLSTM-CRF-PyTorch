@@ -16,8 +16,8 @@ from loader import *
 from model import BiLSTM_CRF
 
 optparser = optparse.OptionParser()
-optparser.add_option("-T", "--train", default="data/lct_event_train.txt", help="Train set location")
-optparser.add_option("-t", "--test", default="data/lct_event_test.txt", help="Test set location")
+optparser.add_option("-T", "--train", default="data/lct_entity_train.txt", help="Train set location")
+optparser.add_option("-t", "--test", default="data/lct_entity_test.txt", help="Test set location")
 optparser.add_option("-d", "--dev", help="Dev set location")
 optparser.add_option("--test_train", default="data/eng.train50000", help="test train")
 optparser.add_option("--score", default="evaluation/temp/score.txt", help="score file location")
