@@ -17,8 +17,8 @@ from model import BiLSTM_CRF
 
 optparser = optparse.OptionParser()
 optparser.add_option("-T", "--train", default="data/lct_event_train.txt", help="Train set location")
-optparser.add_option("-d", "--dev", default="data/lct_event_test_dev.txt", help="Dev set location")
-optparser.add_option("-t", "--test", default="data/lct_event_test_test.txt", help="Test set location")
+optparser.add_option("-t", "--test", default="data/lct_event_test.txt", help="Test set location")
+optparser.add_option("-d", "--dev", help="Dev set location")
 optparser.add_option("--test_train", default="data/eng.train50000", help="test train")
 optparser.add_option("--score", default="evaluation/temp/score.txt", help="score file location")
 optparser.add_option("-s", "--tag_scheme", default="iob", help="Tagging scheme (IOB or IOBES)")
@@ -144,20 +144,6 @@ def evaluating(model, datas, best_F):
                 save = True
                 print('the best F is ', new_F)
 
-    '''
-    print(("{: >2}{: >7}{: >7}%s{: >9}" % ("{: >7}" * confusion_matrix.size(0))).format(
-        "ID", "NE", "Total",
-        *([id_to_tag[i] for i in range(confusion_matrix.size(0))] + ["Percent"])
-    ))
-    for i in range(confusion_matrix.size(0)):
-        print(("{: >2}{: >7}{: >7}%s{: >9}" % ("{: >7}" * confusion_matrix.size(0))).format(
-            str(i), id_to_tag[i], str(confusion_matrix[i].sum().item()),
-            *([confusion_matrix[i][j] for j in range(confusion_matrix.size(0))] +
-              ["%.3f" % (confusion_matrix[i][i] * 100. / max(1, confusion_matrix[i].sum()))])
-        ))
-    print()
-    '''
-
     return best_F, new_F, save
 
 
@@ -172,7 +158,6 @@ def train():
     best_train_F = -1.0
     all_F = [[0, 0, 0]]
     plot_every = 100
-    eval_every = 200
     count = 0
     no_improve_count = 0
     sys.stdout.flush()
@@ -241,28 +226,17 @@ def train():
                 losses.append(loss)
                 loss = 0.0
 
-            '''
-            if (count % (eval_every) == 0 and count > (eval_every * 20) or count % (eval_every * 4) == 0 and count <
-                (eval_every * 20)):
-                model.train(False)
-                best_train_F, new_train_F, _ = evaluating(model, test_train_data, best_train_F)
-                best_dev_F, new_dev_F, save = evaluating(model, dev_data, best_dev_F)
-                if save:
-                    torch.save(model, model_name)
-                best_test_F, new_test_F, _ = evaluating(model, test_data, best_test_F)
-                sys.stdout.flush()
-
-                all_F.append([new_train_F, new_dev_F, new_test_F])
-                model.train(True)
-            '''
-
             if count % len(train_data) == 0:
                 adjust_learning_rate(optimizer, lr=learning_rate / (1 + 0.05 * count / len(train_data)))
 
         # evaluate
         model.train(False)
         best_train_F, new_train_F, _ = evaluating(model, test_train_data, best_train_F)
-        best_dev_F, new_dev_F, save = evaluating(model, dev_data, best_dev_F)
+        best_test_F, new_test_F, save = evaluating(model, test_data, best_test_F)
+        if opts.dev:
+            best_dev_F, new_dev_F, _ = evaluating(model, dev_data, best_dev_F)
+        else:
+            new_dev_F = -1
         if save:
             print(f'Best epoch so far: {epoch}')
             torch.save(model, model_name)
@@ -271,21 +245,20 @@ def train():
             no_improve_count += 1
         best_test_F, new_test_F, _ = evaluating(model, test_data, best_test_F)
         sys.stdout.flush()
+        
         all_F.append([new_train_F, new_dev_F, new_test_F])
         model.train(True)
 
         if no_improve_count == parameters["patience"]:
             print(f'Performance has not improved in {no_improve_count} epochs, early stop!')
-
-
-    plt.plot(losses)
-    plt.show()
+            break
 
 
 if __name__ == "__main__":
     assert os.path.isfile(opts.train)
-    assert os.path.isfile(opts.dev)
     assert os.path.isfile(opts.test)
+    if opts.dev:
+        assert os.path.isfile(opts.dev)
     assert parameters["char_dim"] > 0 or parameters["word_dim"] > 0
     assert 0.0 <= parameters["dropout"] < 1.0
     assert parameters["tag_scheme"] in ["iob", "iobes"]
@@ -305,14 +278,14 @@ if __name__ == "__main__":
     tag_scheme = parameters["tag_scheme"]
 
     train_sentences = loader.load_sentences(opts.train, lower, zeros)
-    dev_sentences = loader.load_sentences(opts.dev, lower, zeros)
     test_sentences = loader.load_sentences(opts.test, lower, zeros)
-    #test_train_sentences = loader.load_sentences(opts.test_train, lower, zeros)
+    if opts.dev:
+        dev_sentences = loader.load_sentences(opts.dev, lower, zeros)
 
     update_tag_scheme(train_sentences, tag_scheme)
-    update_tag_scheme(dev_sentences, tag_scheme)
     update_tag_scheme(test_sentences, tag_scheme)
-    #update_tag_scheme(test_train_sentences, tag_scheme)
+    if opts.dev:
+        update_tag_scheme(dev_sentences, tag_scheme)
 
     dico_words_train = word_mapping(train_sentences, lower)[0]
 
@@ -327,11 +300,15 @@ if __name__ == "__main__":
     dico_tags, tag_to_id, id_to_tag = tag_mapping(train_sentences)
 
     train_data = prepare_dataset(train_sentences, word_to_id, char_to_id, tag_to_id, lower)
-    dev_data = prepare_dataset(dev_sentences, word_to_id, char_to_id, tag_to_id, lower)
     test_data = prepare_dataset(test_sentences, word_to_id, char_to_id, tag_to_id, lower)
+    if opts.dev:
+        dev_data = prepare_dataset(dev_sentences, word_to_id, char_to_id, tag_to_id, lower)
     test_train_data = train_data + test_data #prepare_dataset(test_train_sentences, word_to_id, char_to_id, tag_to_id, lower)
 
-    print("%i / %i / %i sentences in train / dev / test." % (len(train_data), len(dev_data), len(test_data)))
+    if opts.dev:
+        print("%i / %i / %i sentences in train / dev / test." % (len(train_data), len(dev_data), len(test_data)))
+    else:
+        print("%i / %i sentences in train / test." % (len(train_data), len(test_data)))
 
     all_word_embeds = {}
     for i, line in enumerate(open(opts.pre_emb, "r", encoding="utf-8")):
