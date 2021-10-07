@@ -1,4 +1,5 @@
 import torch
+from torch._C import device
 import torch.nn as nn
 from torch.autograd import Variable
 
@@ -35,7 +36,7 @@ class BiLSTM_CRF(nn.Module):
     ):
         super(BiLSTM_CRF, self).__init__()
         self.use_gpu = use_gpu
-        self.device = torch.device("cuda" if self.use_gpu else "cpu")
+        self.device = torch.device("cuda" if self.use_gpu and torch.cuda.is_available() else "cpu")
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
         self.vocab_size = vocab_size
@@ -123,6 +124,8 @@ class BiLSTM_CRF(nn.Module):
         return score
 
     def _get_lstm_features(self, sentence, chars, caps, chars2_length, d):
+        # If just doing prediction we may not be on cuda anymore, so check
+        self.device = torch.device("cuda" if self.use_gpu and torch.cuda.is_available() else "cpu")
 
         if self.char_mode == "LSTM":
             # self.char_lstm_hidden = self.init_lstm_hidden(dim=self.char_lstm_dim, bidirection=True, batchsize=chars.size(0))

@@ -41,7 +41,9 @@ optparser.add_option("--loss", default="loss.txt", help="loss file location")
 optparser.add_option("--name", default="test", help="model name")
 optparser.add_option("--char_mode", choices=["CNN", "LSTM"], default="LSTM", help="char_CNN or char_LSTM")
 optparser.add_option("--max_epochs", default="100", type="int", help="Max number of epochs to train for")
-optparser.add_option("--patience", default="10", type="int", help="number of epochs to continue after no improvment")
+optparser.add_option("--patience", default="10", type="int", help="Number of epochs to continue after no improvment")
+optparser.add_option("--learning_rate", default=".005", type="float", help="Learning rate")
+optparser.add_option("--momentum", default="0", type="float", help="Momentum")
 opts = optparser.parse_args()[0]
 
 parameters = OrderedDict()
@@ -65,6 +67,8 @@ parameters["char_mode"] = opts.char_mode
 parameters["use_gpu"] = opts.use_gpu == 1 and torch.cuda.is_available()
 parameters["max_epochs"] = opts.max_epochs
 parameters["patience"] = opts.patience
+parameters["learning_rate"] = opts.learning_rate
+parameters["momentum"] = opts.momentum
 
 use_gpu = parameters["use_gpu"]
 device = torch.device("cuda" if use_gpu else "cpu")
@@ -77,7 +81,7 @@ tmp_model = model_name + ".tmp"
 
 
 def evaluating(model, datas, best_F):
-    # FB1 on pharse level
+    # FB1 on phrase level
     prediction = []
     save = False
     new_F = 0.0
@@ -147,10 +151,9 @@ def evaluating(model, datas, best_F):
     return best_F, new_F, save
 
 
-
 def train():
-    learning_rate = 0.015
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
+    learning_rate = parameters["learning_rate"]
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=parameters["momentum"])
     losses = []
     loss = 0.0
     best_dev_F = -1.0
@@ -165,6 +168,7 @@ def train():
     model.train(True)
 
     for epoch in range(1, parameters["max_epochs"]):
+        print(f'Beginning epoch {epoch}')
         for iter, index in enumerate(tqdm(np.random.permutation(len(train_data)))):
             data = train_data[index]
             model.zero_grad()
@@ -238,12 +242,11 @@ def train():
         else:
             new_dev_F = -1
         if save:
-            print(f'Best epoch so far: {epoch}')
-            torch.save(model, model_name)
+            print(f'Best epoch so far: {epoch}. F1: {best_test_F}')
+            torch.save(model, f'{model_name}_{epoch}')
             no_improve_count = 0
         else:
             no_improve_count += 1
-        best_test_F, new_test_F, _ = evaluating(model, test_data, best_test_F)
         sys.stdout.flush()
         
         all_F.append([new_train_F, new_dev_F, new_test_F])
