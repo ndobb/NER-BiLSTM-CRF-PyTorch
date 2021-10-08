@@ -1,5 +1,6 @@
 .vscode
 venv
 data/*
+test
 models
 __pycache__

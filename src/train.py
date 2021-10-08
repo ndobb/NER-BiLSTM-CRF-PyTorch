@@ -41,6 +41,7 @@ optparser.add_option("--max_epochs", default="100", type="int", help="Max number
 optparser.add_option("--patience", default="10", type="int", help="Number of epochs to continue after no improvment")
 optparser.add_option("--learning_rate", default="0.005", type="float", help="Learning rate")
 optparser.add_option("--momentum", default="0.9", type="float", help="Momentum")
+optparser.add_option("--gradient_clipping", default="5.0", type="float", help="Gradient clipping")
 opts = optparser.parse_args()[0]
 
 parameters = OrderedDict()
@@ -66,6 +67,7 @@ parameters["max_epochs"] = opts.max_epochs
 parameters["patience"] = opts.patience
 parameters["learning_rate"] = opts.learning_rate
 parameters["momentum"] = opts.momentum
+parameters["gradient_clipping"] = opts.gradient_clipping
 
 use_gpu = parameters["use_gpu"]
 device = torch.device("cuda" if use_gpu else "cpu")
@@ -77,7 +79,7 @@ model_name = models_path + name
 tmp_model = model_name + ".tmp"
 
 
-def evaluating(model, datas, best_F):
+def evaluating(model, datas, best_F, epoch):
     prediction = []
     save = False
     new_F = 0.0
@@ -125,8 +127,8 @@ def evaluating(model, datas, best_F):
             prediction.append(line)
             confusion_matrix[true_id, pred_id] += 1
         prediction.append('')
-    predf = eval_temp + '/pred.' + name
-    scoref = eval_temp + '/score.' + name
+    predf = os.path.join(eval_temp, name, f'pred_{epoch}')
+    scoref = os.path.join(eval_temp, name, f'score{epoch}')
 
     with open(predf, 'w') as f:
         f.write('\n'.join(prediction))
@@ -142,7 +144,6 @@ def evaluating(model, datas, best_F):
             if new_F > best_F:
                 best_F = new_F
                 save = True
-                print('the best F is ', new_F)
 
     return best_F, new_F, save
 
@@ -215,7 +216,7 @@ def train():
                 neg_log_likelihood = model.neg_log_likelihood(sentence_in, targets, chars_mask, caps, chars_length, d)
             loss += neg_log_likelihood.data.item() / len(data["words"])
             neg_log_likelihood.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), parameters["gradient_clipping"])
             optimizer.step()
 
             if count % plot_every == 0:
@@ -231,8 +232,10 @@ def train():
 
         # evaluate
         model.train(False)
-        best_train_F, new_train_F, _ = evaluating(model, test_train_data, best_train_F)
-        best_test_F, new_test_F, save = evaluating(model, test_data, best_test_F)
+        print('Training set:')
+        best_train_F, new_train_F, _ = evaluating(model, train_data, best_train_F, epoch)
+        print('\nTest set:')
+        best_test_F, new_test_F, save = evaluating(model, test_data, best_test_F, epoch)
         if save:
             print(f'Best epoch so far: {epoch}, F1: {best_test_F}')
             torch.save(model, f'{model_name}_{epoch}')
@@ -284,8 +287,8 @@ if __name__ == "__main__":
         list(itertools.chain.from_iterable([[w[0] for w in s] for s in test_sentences])) if not parameters["all_emb"] else None,
     )
 
-    dico_chars, char_to_id, id_to_char = char_mapping(train_sentences)
-    dico_tags, tag_to_id, id_to_tag = tag_mapping(train_sentences)
+    dico_chars, char_to_id, id_to_char = char_mapping(train_sentences+test_sentences)
+    dico_tags, tag_to_id, id_to_tag = tag_mapping(train_sentences+test_sentences)
 
     train_data = prepare_dataset(train_sentences, word_to_id, char_to_id, tag_to_id, lower)
     test_data = prepare_dataset(test_sentences, word_to_id, char_to_id, tag_to_id, lower)
