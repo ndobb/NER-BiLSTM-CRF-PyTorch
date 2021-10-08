@@ -1,5 +1,4 @@
 import torch
-from torch._C import device
 import torch.nn as nn
 from torch.autograd import Variable
 
@@ -96,14 +95,6 @@ class BiLSTM_CRF(nn.Module):
             if self.char_mode == "CNN":
                 self.lstm = nn.LSTM(embedding_dim + self.out_channels, hidden_dim, bidirectional=True)
         init_lstm(self.lstm)
-        # # high way
-        # self.hw_trans = nn.Linear(self.out_channels, self.out_channels)
-        # self.hw_gate = nn.Linear(self.out_channels, self.out_channels)
-        # self.h2_h1 = nn.Linear(hidden_dim * 2, hidden_dim)
-        # self.tanh = nn.Tanh()
-        # init_linear(self.h2_h1)
-        # init_linear(self.hw_gate)
-        # init_linear(self.hw_trans)
         self.hidden2tag = nn.Linear(hidden_dim * 2, self.tagset_size)
         init_linear(self.hidden2tag)
 
@@ -152,11 +143,6 @@ class BiLSTM_CRF(nn.Module):
                                                     kernel_size=(chars_cnn_out3.size(2),
                                                                  1)).view(chars_cnn_out3.size(0), self.out_channels)
 
-        # t = self.hw_gate(chars_embeds) # high way
-        # g = nn.functional.sigmoid(t)
-        # h = nn.functional.relu(self.hw_trans(chars_embeds))
-        # chars_embeds = g * h + (1 - g) * chars_embeds
-
         embeds = self.word_embeds(sentence)
         if self.n_cap and self.cap_embedding_dim:
             cap_embedding = self.cap_embeds(caps)
@@ -196,7 +182,7 @@ class BiLSTM_CRF(nn.Module):
         for bptrs_t in reversed(backtrace[1:]):  # ignore START_TAG
             best_tag_id = bptrs_t[best_tag_id].item()
             best_path.append(best_tag_id)
-        return log_sum_exp(smat).item(), best_path[::-1]  # item() return list?
+        return log_sum_exp(smat).item(), best_path[::-1]
 
     def neg_log_likelihood(self, sentence, tags, chars, caps, chars2_length, d):
         # sentence, tags is a list of ints
@@ -214,7 +200,6 @@ class BiLSTM_CRF(nn.Module):
 
     def forward(self, sentence, chars, caps, chars2_length, d):
         feats = self._get_lstm_features(sentence, chars, caps, chars2_length, d)
-        # viterbi to get tag_seq
         if self.use_crf:
             score, tag_seq = self.viterbi_decode(feats)
         else:

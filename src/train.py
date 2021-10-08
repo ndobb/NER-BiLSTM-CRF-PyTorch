@@ -1,7 +1,6 @@
 # coding=utf-8
 import optparse
 import itertools
-import matplotlib.pyplot as plt
 import sys
 import torch
 import pickle
@@ -18,8 +17,6 @@ from model import BiLSTM_CRF
 optparser = optparse.OptionParser()
 optparser.add_option("-T", "--train", default="data/lct_entity_train.txt", help="Train set location")
 optparser.add_option("-t", "--test", default="data/lct_entity_test.txt", help="Test set location")
-optparser.add_option("-d", "--dev", help="Dev set location")
-optparser.add_option("--test_train", default="data/eng.train50000", help="test train")
 optparser.add_option("--score", default="evaluation/temp/score.txt", help="score file location")
 optparser.add_option("-s", "--tag_scheme", default="iob", help="Tagging scheme (IOB or IOBES)")
 optparser.add_option("-l", "--lower", default="1", type="int", help="Lowercase words (this will not affect character inputs)",)
@@ -42,8 +39,8 @@ optparser.add_option("--name", default="test", help="model name")
 optparser.add_option("--char_mode", choices=["CNN", "LSTM"], default="LSTM", help="char_CNN or char_LSTM")
 optparser.add_option("--max_epochs", default="100", type="int", help="Max number of epochs to train for")
 optparser.add_option("--patience", default="10", type="int", help="Number of epochs to continue after no improvment")
-optparser.add_option("--learning_rate", default=".005", type="float", help="Learning rate")
-optparser.add_option("--momentum", default="0", type="float", help="Momentum")
+optparser.add_option("--learning_rate", default="0.005", type="float", help="Learning rate")
+optparser.add_option("--momentum", default="0.9", type="float", help="Momentum")
 opts = optparser.parse_args()[0]
 
 parameters = OrderedDict()
@@ -74,14 +71,13 @@ use_gpu = parameters["use_gpu"]
 device = torch.device("cuda" if use_gpu else "cpu")
 
 name = parameters["name"]
-mapping_file = "models/mapping.pkl"
+mapping_file = f"models/{name}_mapping.pkl"
 models_path = "models/"
-model_name = models_path + name  # get_name(parameters)
+model_name = models_path + name
 tmp_model = model_name + ".tmp"
 
 
 def evaluating(model, datas, best_F):
-    # FB1 on phrase level
     prediction = []
     save = False
     new_F = 0.0
@@ -120,9 +116,9 @@ def evaluating(model, datas, best_F):
         dwords = Variable(torch.LongTensor(data['words']))
         dcaps = Variable(torch.LongTensor(caps))
         if use_gpu:
-            val, out = model(dwords.cuda(), chars2_mask.cuda(), dcaps.cuda(), chars2_length, d)
+            _, out = model(dwords.cuda(), chars2_mask.cuda(), dcaps.cuda(), chars2_length, d)
         else:
-            val, out = model(dwords, chars2_mask, dcaps, chars2_length, d)
+            _, out = model(dwords, chars2_mask, dcaps, chars2_length, d)
         predicted_id = out
         for (word, true_id, pred_id) in zip(words, ground_truth_id, predicted_id):
             line = ' '.join([word, id_to_tag[true_id], id_to_tag[pred_id]])
@@ -237,19 +233,15 @@ def train():
         model.train(False)
         best_train_F, new_train_F, _ = evaluating(model, test_train_data, best_train_F)
         best_test_F, new_test_F, save = evaluating(model, test_data, best_test_F)
-        if opts.dev:
-            best_dev_F, new_dev_F, _ = evaluating(model, dev_data, best_dev_F)
-        else:
-            new_dev_F = -1
         if save:
-            print(f'Best epoch so far: {epoch}. F1: {best_test_F}')
+            print(f'Best epoch so far: {epoch}, F1: {best_test_F}')
             torch.save(model, f'{model_name}_{epoch}')
             no_improve_count = 0
         else:
             no_improve_count += 1
         sys.stdout.flush()
         
-        all_F.append([new_train_F, new_dev_F, new_test_F])
+        all_F.append([new_train_F, new_test_F])
         model.train(True)
 
         if no_improve_count == parameters["patience"]:
@@ -260,8 +252,6 @@ def train():
 if __name__ == "__main__":
     assert os.path.isfile(opts.train)
     assert os.path.isfile(opts.test)
-    if opts.dev:
-        assert os.path.isfile(opts.dev)
     assert parameters["char_dim"] > 0 or parameters["word_dim"] > 0
     assert 0.0 <= parameters["dropout"] < 1.0
     assert parameters["tag_scheme"] in ["iob", "iobes"]
@@ -282,21 +272,16 @@ if __name__ == "__main__":
 
     train_sentences = loader.load_sentences(opts.train, lower, zeros)
     test_sentences = loader.load_sentences(opts.test, lower, zeros)
-    if opts.dev:
-        dev_sentences = loader.load_sentences(opts.dev, lower, zeros)
 
     update_tag_scheme(train_sentences, tag_scheme)
     update_tag_scheme(test_sentences, tag_scheme)
-    if opts.dev:
-        update_tag_scheme(dev_sentences, tag_scheme)
 
     dico_words_train = word_mapping(train_sentences, lower)[0]
 
     dico_words, word_to_id, id_to_word = augment_with_pretrained(
         dico_words_train.copy(),
         parameters["pre_emb"],
-        list(itertools.chain.from_iterable([[w[0] for w in s] for s in dev_sentences +
-                                            test_sentences])) if not parameters["all_emb"] else None,
+        list(itertools.chain.from_iterable([[w[0] for w in s] for s in test_sentences])) if not parameters["all_emb"] else None,
     )
 
     dico_chars, char_to_id, id_to_char = char_mapping(train_sentences)
@@ -304,14 +289,9 @@ if __name__ == "__main__":
 
     train_data = prepare_dataset(train_sentences, word_to_id, char_to_id, tag_to_id, lower)
     test_data = prepare_dataset(test_sentences, word_to_id, char_to_id, tag_to_id, lower)
-    if opts.dev:
-        dev_data = prepare_dataset(dev_sentences, word_to_id, char_to_id, tag_to_id, lower)
-    test_train_data = train_data + test_data #prepare_dataset(test_train_sentences, word_to_id, char_to_id, tag_to_id, lower)
+    test_train_data = train_data + test_data
 
-    if opts.dev:
-        print("%i / %i / %i sentences in train / dev / test." % (len(train_data), len(dev_data), len(test_data)))
-    else:
-        print("%i / %i sentences in train / test." % (len(train_data), len(test_data)))
+    print("%i / %i sentences in train / test." % (len(train_data), len(test_data)))
 
     all_word_embeds = {}
     for i, line in enumerate(open(opts.pre_emb, "r", encoding="utf-8")):
@@ -352,8 +332,6 @@ if __name__ == "__main__":
         use_crf=parameters["crf"],
         char_mode=parameters["char_mode"],
     )
-    # n_cap=4,
-    # cap_embedding_dim=10)
 
     if parameters["reload"]:
         model = torch.load(model_name)
