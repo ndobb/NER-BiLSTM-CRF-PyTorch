@@ -1,6 +1,7 @@
 .vscode
 venv
 data/*
+src/evaluation/*
 test
 models
 __pycache__

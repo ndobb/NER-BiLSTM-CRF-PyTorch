@@ -76,7 +76,6 @@ name = parameters["name"]
 mapping_file = f"models/{name}_mapping.pkl"
 models_path = "models/"
 model_name = models_path + name
-tmp_model = model_name + ".tmp"
 
 
 def evaluating(model, datas, best_F, epoch):
@@ -127,8 +126,11 @@ def evaluating(model, datas, best_F, epoch):
             prediction.append(line)
             confusion_matrix[true_id, pred_id] += 1
         prediction.append('')
-    predf = os.path.join(eval_temp, name, f'pred_{epoch}')
-    scoref = os.path.join(eval_temp, name, f'score{epoch}')
+    predf = os.path.join(eval_path, name, f'pred_{epoch}.conll.txt')
+    scoref = os.path.join(eval_path, name, f'score{epoch}.conll_eval.txt')
+
+    if not os.path.exists(os.path.join(eval_path, name)):
+        os.mkdir(os.path.join(eval_path, name))
 
     with open(predf, 'w') as f:
         f.write('\n'.join(prediction))
@@ -221,7 +223,6 @@ def train():
 
             if count % plot_every == 0:
                 loss /= plot_every
-                print(loss)
                 if losses == []:
                     losses.append(loss)
                 losses.append(loss)
@@ -237,7 +238,7 @@ def train():
         print('\nTest set:')
         best_test_F, new_test_F, save = evaluating(model, test_data, best_test_F, epoch)
         if save:
-            print(f'Best epoch so far: {epoch}, F1: {best_test_F}')
+            print(f'\nBest epoch so far: {epoch}, F1: {best_test_F}')
             torch.save(model, f'{model_name}_{epoch}')
             no_improve_count = 0
         else:
